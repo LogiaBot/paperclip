@@ -57,6 +57,10 @@ export const issuesApi = {
       includeRoutineExecutions?: boolean;
       includeBlockedBy?: boolean;
       includeBlockedInboxAttention?: boolean;
+      createdAfter?: string;
+      createdBefore?: string;
+      updatedAfter?: string;
+      updatedBefore?: string;
       q?: string;
       limit?: number;
       offset?: number;
@@ -83,6 +87,10 @@ export const issuesApi = {
     if (filters?.includeRoutineExecutions) params.set("includeRoutineExecutions", "true");
     if (filters?.includeBlockedBy) params.set("includeBlockedBy", "true");
     if (filters?.includeBlockedInboxAttention) params.set("includeBlockedInboxAttention", "true");
+    if (filters?.createdAfter) params.set("createdAfter", filters.createdAfter);
+    if (filters?.createdBefore) params.set("createdBefore", filters.createdBefore);
+    if (filters?.updatedAfter) params.set("updatedAfter", filters.updatedAfter);
+    if (filters?.updatedBefore) params.set("updatedBefore", filters.updatedBefore);
     if (filters?.q) params.set("q", filters.q);
     if (filters?.limit) params.set("limit", String(filters.limit));
     if (filters?.offset !== undefined) params.set("offset", String(filters.offset));

@@ -26,12 +26,16 @@ import {
   applyIssueFilters,
   countActiveIssueFilters,
   defaultIssueFilterState,
+  hasActiveDateFilter,
   issueFilterLabel,
   issuePriorityOrder,
   normalizeIssueFilterState,
+  resolveDateFilterRange,
   resolveIssueFilterWorkspaceId,
   shouldIncludeIssueFilterWorkspaceOption,
   issueStatusOrder,
+  type DateFilterField,
+  type DateFilterPreset,
   type IssueFilterState,
 } from "../lib/issue-filters";
 import {
@@ -691,6 +695,44 @@ export function IssuesList({
     });
   }, [scopedKey]);
 
+  // Seed date filter from URL params on first mount; sync changes back to URL.
+  const dateUrlSyncedRef = useRef(false);
+  useEffect(() => {
+    if (dateUrlSyncedRef.current) return;
+    dateUrlSyncedRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const urlDatePreset = params.get("datePreset") as DateFilterPreset | null;
+    if (urlDatePreset) {
+      updateView({
+        datePreset: urlDatePreset,
+        dateField: (params.get("dateField") as DateFilterField) ?? "createdAt",
+        dateAfter: params.get("dateAfter"),
+        dateBefore: params.get("dateBefore"),
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    if (hasActiveDateFilter(viewState)) {
+      if (viewState.datePreset) params.set("datePreset", viewState.datePreset);
+      if (viewState.dateField && viewState.dateField !== "createdAt") params.set("dateField", viewState.dateField);
+      if (viewState.dateAfter) params.set("dateAfter", viewState.dateAfter);
+      if (viewState.dateBefore) params.set("dateBefore", viewState.dateBefore);
+    } else {
+      params.delete("datePreset");
+      params.delete("dateField");
+      params.delete("dateAfter");
+      params.delete("dateBefore");
+    }
+    const next = `${url.pathname}${url.search}${url.hash}`;
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+      window.history.replaceState(window.history.state, "", next);
+    }
+  }, [viewState.datePreset, viewState.dateField, viewState.dateAfter, viewState.dateBefore]);
+
   // Prune stale IDs from collapsedParents whenever the issue list changes.
   // Deleted or reassigned issues leave orphan IDs in localStorage; this keeps
   // the stored array bounded to only current parent IDs.
@@ -703,10 +745,21 @@ export function IssuesList({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issues]);
 
+  const dateApiParams = useMemo(() => {
+    if (!hasActiveDateFilter(viewState)) return {};
+    const { after, before } = resolveDateFilterRange(viewState);
+    const field = viewState.dateField === "updatedAt" ? "updatedAt" : "createdAt";
+    const params: Record<string, string> = {};
+    if (after) params[field === "createdAt" ? "createdAfter" : "updatedAfter"] = after;
+    if (before) params[field === "createdAt" ? "createdBefore" : "updatedBefore"] = before;
+    return params;
+  }, [viewState.datePreset, viewState.dateField, viewState.dateAfter, viewState.dateBefore]);
+
   const { data: searchedIssues = [] } = useQuery({
     queryKey: [
       ...queryKeys.issues.search(selectedCompanyId!, normalizedIssueSearch, projectId),
       searchFilters ?? {},
+      dateApiParams,
       ISSUE_SEARCH_RESULT_LIMIT,
       enableRoutineVisibilityFilter ? "with-routine-executions" : "without-routine-executions",
     ],
@@ -716,6 +769,7 @@ export function IssuesList({
         projectId,
         limit: ISSUE_SEARCH_RESULT_LIMIT,
         ...searchFilters,
+        ...dateApiParams,
         ...(enableRoutineVisibilityFilter ? { includeRoutineExecutions: true } : {}),
       }),
     enabled: !!selectedCompanyId && normalizedIssueSearch.length > 0 && !searchWithinLoadedIssues,
@@ -730,12 +784,14 @@ export function IssuesList({
         normalizedIssueSearch,
         projectId ?? "__all-projects__",
         searchFilters ?? {},
+        dateApiParams,
         ISSUE_BOARD_COLUMN_RESULT_LIMIT,
         enableRoutineVisibilityFilter ? "with-routine-executions" : "without-routine-executions",
       ],
       queryFn: () =>
         issuesApi.list(selectedCompanyId!, {
           ...searchFilters,
+          ...dateApiParams,
           ...(normalizedIssueSearch.length > 0 ? { q: normalizedIssueSearch } : {}),
           projectId,
           status,

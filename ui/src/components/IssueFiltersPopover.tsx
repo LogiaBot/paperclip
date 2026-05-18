@@ -4,17 +4,22 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Filter, HardDrive, Search, User, X } from "lucide-react";
+import { Bot, Calendar, Filter, HardDrive, Search, User, X } from "lucide-react";
 import { PriorityIcon } from "./PriorityIcon";
 import { StatusIcon } from "./StatusIcon";
 import {
+  computeDateRange,
+  dateFilterPresets,
   defaultIssueFilterState,
+  hasActiveDateFilter,
   issueFilterArraysEqual,
   issueFilterLabel,
   issuePriorityOrder,
   issueQuickFilterPresets,
   issueStatusOrder,
   toggleIssueFilterValue,
+  type DateFilterField,
+  type DateFilterPreset,
   type IssueFilterState,
 } from "../lib/issue-filters";
 import { formatAssigneeUserLabel } from "../lib/assignees";
@@ -343,6 +348,90 @@ export function IssueFiltersPopover({
                   </div>
                 </div>
               ) : null}
+
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Date</span>
+                <div className="flex gap-1 mb-1">
+                  {(["createdAt", "updatedAt"] as const).map((field) => (
+                    <button
+                      key={field}
+                      type="button"
+                      className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
+                        (state.dateField ?? "createdAt") === field
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                      }`}
+                      onClick={() => onChange({ dateField: field })}
+                    >
+                      {field === "createdAt" ? "Created" : "Updated"}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-0.5">
+                  {dateFilterPresets.map((preset) => {
+                    const isActive = state.datePreset === preset.key;
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        className={`flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-sm ${
+                          isActive ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        }`}
+                        onClick={() => {
+                          if (isActive) {
+                            onChange({ datePreset: null, dateAfter: null, dateBefore: null });
+                          } else if (preset.key === "custom") {
+                            onChange({ datePreset: "custom" });
+                          } else {
+                            const range = computeDateRange(preset.key);
+                            onChange({ datePreset: preset.key, dateAfter: range.after || null, dateBefore: range.before });
+                          }
+                        }}
+                      >
+                        <Calendar className="h-3.5 w-3.5" />
+                        <span>{preset.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {state.datePreset === "custom" ? (
+                  <div className="space-y-1 pt-1">
+                    <div>
+                      <span className="text-[11px] text-muted-foreground">From</span>
+                      <Input
+                        type="date"
+                        value={state.dateAfter ? state.dateAfter.slice(0, 10) : ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          onChange({ dateAfter: val ? new Date(val).toISOString() : null });
+                        }}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-muted-foreground">To</span>
+                      <Input
+                        type="date"
+                        value={state.dateBefore ? state.dateBefore.slice(0, 10) : ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          onChange({ dateBefore: val ? new Date(`${val}T23:59:59.999Z`).toISOString() : null });
+                        }}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+                {hasActiveDateFilter(state) ? (
+                  <button
+                    type="button"
+                    className="mt-1 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => onChange({ datePreset: null, dateAfter: null, dateBefore: null })}
+                  >
+                    Clear date filter
+                  </button>
+                ) : null}
+              </div>
 
               <div className="space-y-1">
                 <span className="text-xs text-muted-foreground">Visibility</span>

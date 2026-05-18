@@ -159,6 +159,10 @@ type PluginIssuesListFilters = {
   originId?: string;
   descendantOf?: string;
   includeRoutineExecutions?: boolean;
+  createdAfter?: string;
+  createdBefore?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
 };
 
 type PluginIssuesListProps = {

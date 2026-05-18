@@ -338,6 +338,10 @@ export interface IssuesListFilters {
   originId?: string;
   descendantOf?: string;
   includeRoutineExecutions?: boolean;
+  createdAfter?: string;
+  createdBefore?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
 }
 
 export interface IssuesListProps {

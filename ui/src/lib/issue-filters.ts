@@ -10,6 +10,9 @@ export type IssueFilterWorkspaceContext = {
   defaultProjectWorkspaceIdByProjectId?: ReadonlyMap<string, string>;
 };
 
+export type DateFilterPreset = "today" | "last7" | "last30" | "thisMonth" | "thisQuarter" | "custom";
+export type DateFilterField = "createdAt" | "updatedAt";
+
 export type IssueFilterState = {
   statuses: string[];
   priorities: string[];
@@ -20,6 +23,10 @@ export type IssueFilterState = {
   workspaces: string[];
   liveOnly?: boolean;
   hideRoutineExecutions: boolean;
+  datePreset?: DateFilterPreset | null;
+  dateField?: DateFilterField;
+  dateAfter?: string | null;
+  dateBefore?: string | null;
 };
 
 export const defaultIssueFilterState: IssueFilterState = {
@@ -32,7 +39,47 @@ export const defaultIssueFilterState: IssueFilterState = {
   workspaces: [],
   liveOnly: false,
   hideRoutineExecutions: false,
+  datePreset: null,
+  dateField: "createdAt",
+  dateAfter: null,
+  dateBefore: null,
 };
+
+export const dateFilterPresets: { key: DateFilterPreset; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "last7", label: "Last 7 days" },
+  { key: "last30", label: "Last 30 days" },
+  { key: "thisMonth", label: "This month" },
+  { key: "thisQuarter", label: "This quarter" },
+  { key: "custom", label: "Custom" },
+];
+
+export function computeDateRange(preset: DateFilterPreset): { after: string; before: string | null } {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  switch (preset) {
+    case "today":
+      return { after: startOfDay.toISOString(), before: null };
+    case "last7": {
+      const d = new Date(startOfDay);
+      d.setDate(d.getDate() - 7);
+      return { after: d.toISOString(), before: null };
+    }
+    case "last30": {
+      const d = new Date(startOfDay);
+      d.setDate(d.getDate() - 30);
+      return { after: d.toISOString(), before: null };
+    }
+    case "thisMonth":
+      return { after: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), before: null };
+    case "thisQuarter": {
+      const quarterStart = Math.floor(now.getMonth() / 3) * 3;
+      return { after: new Date(now.getFullYear(), quarterStart, 1).toISOString(), before: null };
+    }
+    case "custom":
+      return { after: "", before: null };
+  }
+}
 
 export const issueStatusOrder = ["in_progress", "todo", "backlog", "in_review", "blocked", "done", "cancelled"];
 export const issuePriorityOrder = ["critical", "high", "medium", "low"];
@@ -60,6 +107,19 @@ function normalizeIssueFilterValueArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
+function normalizeDateFilterPreset(value: unknown): DateFilterPreset | null {
+  if (value === "today" || value === "last7" || value === "last30" || value === "thisMonth" || value === "thisQuarter" || value === "custom") return value;
+  return null;
+}
+
+function normalizeDateFilterField(value: unknown): DateFilterField {
+  return value === "updatedAt" ? "updatedAt" : "createdAt";
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 export function normalizeIssueFilterState(value: unknown): IssueFilterState {
   if (!value || typeof value !== "object") return { ...defaultIssueFilterState };
   const candidate = value as Partial<Record<keyof IssueFilterState, unknown>>;
@@ -73,6 +133,10 @@ export function normalizeIssueFilterState(value: unknown): IssueFilterState {
     workspaces: normalizeIssueFilterValueArray(candidate.workspaces),
     liveOnly: candidate.liveOnly === true,
     hideRoutineExecutions: candidate.hideRoutineExecutions === true,
+    datePreset: normalizeDateFilterPreset(candidate.datePreset),
+    dateField: normalizeDateFilterField(candidate.dateField),
+    dateAfter: normalizeOptionalString(candidate.dateAfter),
+    dateBefore: normalizeOptionalString(candidate.dateBefore),
   };
 }
 
@@ -116,6 +180,19 @@ export function shouldIncludeIssueFilterWorkspaceOption(
   return !(workspace.mode === "shared_workspace"
     && workspace.projectWorkspaceId != null
     && defaultProjectWorkspaceIds.has(workspace.projectWorkspaceId));
+}
+
+export function resolveDateFilterRange(state: IssueFilterState): { after: string | null; before: string | null } {
+  if (!state.datePreset) return { after: null, before: null };
+  if (state.datePreset === "custom") return { after: state.dateAfter ?? null, before: state.dateBefore ?? null };
+  const range = computeDateRange(state.datePreset);
+  return { after: range.after || null, before: range.before };
+}
+
+export function hasActiveDateFilter(state: IssueFilterState): boolean {
+  if (!state.datePreset) return false;
+  if (state.datePreset === "custom") return !!(state.dateAfter || state.dateBefore);
+  return true;
 }
 
 export function applyIssueFilters(
@@ -166,6 +243,24 @@ export function applyIssueFilters(
       return workspaceId != null && state.workspaces.includes(workspaceId);
     });
   }
+  if (hasActiveDateFilter(state)) {
+    const { after, before } = resolveDateFilterRange(state);
+    const field = state.dateField === "updatedAt" ? "updatedAt" : "createdAt";
+    if (after) {
+      const afterTime = new Date(after).getTime();
+      result = result.filter((issue) => {
+        const ts = issue[field];
+        return ts != null && new Date(ts).getTime() >= afterTime;
+      });
+    }
+    if (before) {
+      const beforeTime = new Date(before).getTime();
+      result = result.filter((issue) => {
+        const ts = issue[field];
+        return ts != null && new Date(ts).getTime() <= beforeTime;
+      });
+    }
+  }
   return result;
 }
 
@@ -183,5 +278,6 @@ export function countActiveIssueFilters(
   if (state.workspaces.length > 0) count += 1;
   if (state.liveOnly) count += 1;
   if (enableRoutineVisibilityFilter && state.hideRoutineExecutions) count += 1;
+  if (hasActiveDateFilter(state)) count += 1;
   return count;
 }

@@ -1053,6 +1053,10 @@ describe("inbox helpers", () => {
         workspaces: ["workspace-1"],
         liveOnly: true,
         hideRoutineExecutions: false,
+        datePreset: null,
+        dateField: "createdAt",
+        dateAfter: null,
+        dateBefore: null,
       },
     });
     expect(loadInboxFilterPreferences("company-2")).toEqual({
@@ -1068,6 +1072,10 @@ describe("inbox helpers", () => {
         workspaces: [],
         liveOnly: false,
         hideRoutineExecutions: true,
+        datePreset: null,
+        dateField: "createdAt",
+        dateAfter: null,
+        dateBefore: null,
       },
     });
   });
@@ -1102,6 +1110,10 @@ describe("inbox helpers", () => {
         workspaces: ["workspace-1"],
         liveOnly: false,
         hideRoutineExecutions: false,
+        datePreset: null,
+        dateField: "createdAt",
+        dateAfter: null,
+        dateBefore: null,
       },
     });
   });
