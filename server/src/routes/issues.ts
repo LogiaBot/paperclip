@@ -1739,6 +1739,10 @@ export function issueRoutes(
       includeBlockedInboxAttention:
         req.query.includeBlockedInboxAttention === "true" || req.query.includeBlockedInboxAttention === "1",
       q: req.query.q as string | undefined,
+      createdAfter: req.query.createdAfter as string | undefined,
+      createdBefore: req.query.createdBefore as string | undefined,
+      updatedAfter: req.query.updatedAfter as string | undefined,
+      updatedBefore: req.query.updatedBefore as string | undefined,
       limit,
       offset,
     });

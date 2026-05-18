@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, like, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   activityLog,
@@ -237,6 +237,10 @@ export interface IssueFilters {
   includeBlockedBy?: boolean;
   includeBlockedInboxAttention?: boolean;
   q?: string;
+  createdAfter?: string;
+  createdBefore?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
   limit?: number;
   offset?: number;
 }
@@ -3506,6 +3510,22 @@ export function issueService(db: Db) {
       }
       if (filters?.excludeRoutineExecutions && !filters?.originKind && !filters?.originId) {
         conditions.push(ne(issues.originKind, "routine_execution"));
+      }
+      if (filters?.createdAfter) {
+        const d = new Date(filters.createdAfter);
+        if (!Number.isNaN(d.getTime())) conditions.push(gte(issues.createdAt, d));
+      }
+      if (filters?.createdBefore) {
+        const d = new Date(filters.createdBefore);
+        if (!Number.isNaN(d.getTime())) conditions.push(lte(issues.createdAt, d));
+      }
+      if (filters?.updatedAfter) {
+        const d = new Date(filters.updatedAfter);
+        if (!Number.isNaN(d.getTime())) conditions.push(gte(issues.updatedAt, d));
+      }
+      if (filters?.updatedBefore) {
+        const d = new Date(filters.updatedBefore);
+        if (!Number.isNaN(d.getTime())) conditions.push(lte(issues.updatedAt, d));
       }
       conditions.push(isNull(issues.hiddenAt));
 
