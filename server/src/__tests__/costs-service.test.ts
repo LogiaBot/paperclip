@@ -843,4 +843,102 @@ describeEmbeddedPostgres("cost and finance aggregate overflow handling", () => {
     expect(byKindRow?.debitCents).toBe(4_000_000_000);
     expect(byKindRow?.netCents).toBe(4_000_000_000);
   });
+
+  it("tokensByAgent returns every company agent and merges ledger with run usage", async () => {
+    const companyId = randomUUID();
+    const trackedAgentId = randomUUID();
+    const idleAgentId = randomUUID();
+    const runOnlyAgentId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values([
+      {
+        id: trackedAgentId,
+        companyId,
+        name: "Tracked Agent",
+        role: "engineer",
+        status: "active",
+        adapterType: "claude_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: idleAgentId,
+        companyId,
+        name: "Idle Agent",
+        role: "engineer",
+        status: "active",
+        adapterType: "claude_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+      {
+        id: runOnlyAgentId,
+        companyId,
+        name: "Run Only Agent",
+        role: "engineer",
+        status: "active",
+        adapterType: "hermes_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      },
+    ]);
+
+    await db.insert(costEvents).values({
+      companyId,
+      agentId: trackedAgentId,
+      provider: "anthropic",
+      biller: "anthropic",
+      billingType: "subscription_included",
+      model: "claude-opus-4-6",
+      inputTokens: 10,
+      cachedInputTokens: 100,
+      outputTokens: 20,
+      costCents: 0,
+      occurredAt: new Date("2026-04-10T12:00:00.000Z"),
+    });
+
+    await db.insert(heartbeatRuns).values({
+      companyId,
+      agentId: runOnlyAgentId,
+      status: "succeeded",
+      startedAt: new Date("2026-04-10T11:00:00.000Z"),
+      finishedAt: new Date("2026-04-10T11:05:00.000Z"),
+      usageJson: {
+        inputTokens: 50,
+        cachedInputTokens: 5,
+        outputTokens: 15,
+      },
+    });
+
+    const range = {
+      from: new Date("2026-04-01T00:00:00.000Z"),
+      to: new Date("2026-04-15T23:59:59.999Z"),
+    };
+
+    const rows = await costs.tokensByAgent(companyId, range);
+    expect(rows).toHaveLength(3);
+
+    const tracked = rows.find((row) => row.agentId === trackedAgentId);
+    const idle = rows.find((row) => row.agentId === idleAgentId);
+    const runOnly = rows.find((row) => row.agentId === runOnlyAgentId);
+
+    expect(tracked?.totalTokens).toBe(130);
+    expect(tracked?.tokenSource).toBe("ledger");
+    expect(idle?.totalTokens).toBe(0);
+    expect(idle?.runCountInRange).toBe(0);
+    expect(idle?.tokenSource).toBe("none");
+    expect(runOnly?.totalTokens).toBe(70);
+    expect(runOnly?.tokenSource).toBe("runs");
+    expect(runOnly?.runCountInRange).toBe(1);
+    expect(runOnly?.runsWithTokensInRange).toBe(1);
+  });
 });

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export type DatePreset = "mtd" | "7d" | "30d" | "ytd" | "all" | "custom";
+export type DatePreset = "today" | "yesterday" | "mtd" | "7d" | "30d" | "ytd" | "all" | "custom";
 
 export const PRESET_LABELS: Record<DatePreset, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
   mtd: "Month to Date",
   "7d": "Last 7 Days",
   "30d": "Last 30 Days",
@@ -11,7 +13,7 @@ export const PRESET_LABELS: Record<DatePreset, string> = {
   custom: "Custom",
 };
 
-export const PRESET_KEYS: DatePreset[] = ["mtd", "7d", "30d", "ytd", "all", "custom"];
+export const PRESET_KEYS: DatePreset[] = ["today", "yesterday", "mtd", "7d", "30d", "ytd", "all", "custom"];
 
 // note: computeRange is called inside a useMemo that re-evaluates once per minute
 // (driven by minuteTick). this means sliding windows (7d, 30d) advance their upper
@@ -20,6 +22,15 @@ function computeRange(preset: DatePreset): { from: string; to: string } {
   const now = new Date();
   const to = now.toISOString();
   switch (preset) {
+    case "today": {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      return { from: d.toISOString(), to };
+    }
+    case "yesterday": {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+      return { from: start.toISOString(), to: end.toISOString() };
+    }
     case "mtd": {
       const d = new Date(now.getFullYear(), now.getMonth(), 1);
       return { from: d.toISOString(), to };

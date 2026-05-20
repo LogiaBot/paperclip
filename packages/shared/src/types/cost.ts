@@ -58,6 +58,29 @@ export interface CostByAgent {
   subscriptionOutputTokens: number;
 }
 
+/** per-agent token usage for the Tokens dashboard (all agents, including zero-usage) */
+export interface AgentTokenUsage {
+  agentId: string;
+  agentName: string;
+  agentStatus: string;
+  adapterType: string;
+  reportsTo: string | null;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  /** input + cached + output */
+  totalTokens: number;
+  apiRunCount: number;
+  subscriptionRunCount: number;
+  /** heartbeat runs finished in range */
+  runCountInRange: number;
+  /** runs in range with non-zero token usage recorded */
+  runsWithTokensInRange: number;
+  lastRunAt: Date | null;
+  /** ledger = cost_events; runs = run usage only; none = no recorded usage */
+  tokenSource: "ledger" | "runs" | "none";
+}
+
 export interface CostByProviderModel {
   provider: string;
   biller: string;

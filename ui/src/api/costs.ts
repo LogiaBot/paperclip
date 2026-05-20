@@ -1,4 +1,5 @@
 import type {
+  AgentTokenUsage,
   CostSummary,
   CostByAgent,
   CostByProviderModel,
@@ -27,6 +28,8 @@ export const costsApi = {
     api.get<CostSummary>(`/companies/${companyId}/costs/summary${dateParams(from, to)}`),
   byAgent: (companyId: string, from?: string, to?: string) =>
     api.get<CostByAgent[]>(`/companies/${companyId}/costs/by-agent${dateParams(from, to)}`),
+  tokensByAgent: (companyId: string, from?: string, to?: string) =>
+    api.get<AgentTokenUsage[]>(`/companies/${companyId}/costs/tokens-by-agent${dateParams(from, to)}`),
   byAgentModel: (companyId: string, from?: string, to?: string) =>
     api.get<CostByAgentModel[]>(`/companies/${companyId}/costs/by-agent-model${dateParams(from, to)}`),
   byProject: (companyId: string, from?: string, to?: string) =>

@@ -158,6 +158,14 @@ export function costRoutes(
     res.json(rows);
   });
 
+  router.get("/companies/:companyId/costs/tokens-by-agent", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const range = parseCostDateRange(req.query);
+    const rows = await costs.tokensByAgent(companyId, range);
+    res.json(rows);
+  });
+
   router.get("/companies/:companyId/costs/by-agent-model", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);

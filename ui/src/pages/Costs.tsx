@@ -12,6 +12,7 @@ import type {
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Coins, DollarSign, ReceiptText } from "lucide-react";
 import { budgetsApi } from "../api/budgets";
 import { costsApi } from "../api/costs";
+import { TokensTab } from "../components/costs/TokensTab";
 import { BillerSpendCard } from "../components/BillerSpendCard";
 import { BudgetIncidentCard } from "../components/BudgetIncidentCard";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
@@ -151,7 +152,9 @@ export function Costs() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
 
-  const [mainTab, setMainTab] = useState<"overview" | "budgets" | "providers" | "billers" | "finance">("overview");
+  const [mainTab, setMainTab] = useState<
+    "overview" | "tokens" | "budgets" | "providers" | "billers" | "finance"
+  >("overview");
   const [activeProvider, setActiveProvider] = useState("all");
   const [activeBiller, setActiveBiller] = useState("all");
 
@@ -240,6 +243,12 @@ export function Costs() {
       ]);
       return { summary, byAgent, byProject, byAgentModel };
     },
+    enabled: !!selectedCompanyId && customReady,
+  });
+
+  const { data: tokenRows, isLoading: tokensLoading, error: tokensError } = useQuery({
+    queryKey: queryKeys.tokensByAgent(companyId, from || undefined, to || undefined),
+    queryFn: () => costsApi.tokensByAgent(companyId, from || undefined, to || undefined),
     enabled: !!selectedCompanyId && customReady,
   });
 
@@ -620,6 +629,7 @@ export function Costs() {
       <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as typeof mainTab)}>
         <TabsList variant="line" className="justify-start">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="tokens">Tokens</TabsTrigger>
           <TabsTrigger value="budgets">Budgets</TabsTrigger>
           <TabsTrigger value="providers">Providers</TabsTrigger>
           <TabsTrigger value="billers">Billers</TabsTrigger>
@@ -829,6 +839,15 @@ export function Costs() {
               </div>
             </>
           )}
+        </TabsContent>
+
+        <TabsContent value="tokens" className="mt-4 space-y-4">
+          <TokensTab
+            rows={tokenRows}
+            isLoading={tokensLoading && customReady}
+            error={(tokensError ?? null) as Error | null}
+            showCustomPrompt={showCustomPrompt}
+          />
         </TabsContent>
 
         <TabsContent value="budgets" className="mt-4 space-y-4">

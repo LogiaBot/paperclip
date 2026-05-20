@@ -1,4 +1,5 @@
-import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import type { AgentTokenUsage } from "@paperclipai/shared";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@paperclipai/db";
 import { activityLog, agents, companies, costEvents, heartbeatRuns, issues, projects } from "@paperclipai/db";
@@ -12,10 +13,36 @@ export interface CostDateRange {
 
 const METERED_BILLING_TYPE = "metered_api";
 const SUBSCRIPTION_BILLING_TYPES = ["subscription_included", "subscription_overage"] as const;
+const TERMINAL_RUN_STATUSES = ["succeeded", "failed", "timed_out", "cancelled"] as const;
 
 function sumAsNumber(column: typeof costEvents.costCents | typeof costEvents.inputTokens | typeof costEvents.cachedInputTokens | typeof costEvents.outputTokens) {
   return sql<number>`coalesce(sum(${column}), 0)::double precision`;
 }
+
+const runOccurredAt = sql<Date>`coalesce(${heartbeatRuns.finishedAt}, ${heartbeatRuns.startedAt}, ${heartbeatRuns.createdAt})`;
+
+const runUsageJson = sql`coalesce(${heartbeatRuns.usageJson}, ${heartbeatRuns.resultJson} -> 'usage')`;
+
+const runInputTokensExpr = sql<number>`coalesce(
+  (${runUsageJson} ->> 'inputTokens')::double precision,
+  (${runUsageJson} ->> 'input_tokens')::double precision,
+  0
+)`;
+
+const runCachedInputTokensExpr = sql<number>`coalesce(
+  (${runUsageJson} ->> 'cachedInputTokens')::double precision,
+  (${runUsageJson} ->> 'cached_input_tokens')::double precision,
+  (${runUsageJson} ->> 'cache_read_input_tokens')::double precision,
+  0
+)`;
+
+const runOutputTokensExpr = sql<number>`coalesce(
+  (${runUsageJson} ->> 'outputTokens')::double precision,
+  (${runUsageJson} ->> 'output_tokens')::double precision,
+  0
+)`;
+
+const runTotalTokensExpr = sql<number>`(${runInputTokensExpr} + ${runCachedInputTokensExpr} + ${runOutputTokensExpr})`;
 
 function currentUtcMonthWindow(now = new Date()) {
   const year = now.getUTCFullYear();
@@ -300,6 +327,115 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         .where(and(...conditions))
         .groupBy(costEvents.agentId, agents.name, agents.status)
         .orderBy(desc(sumAsNumber(costEvents.costCents)));
+    },
+
+    tokensByAgent: async (companyId: string, range?: CostDateRange): Promise<AgentTokenUsage[]> => {
+      const company = await db
+        .select({ id: companies.id })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .then((rows) => rows[0] ?? null);
+      if (!company) throw notFound("Company not found");
+
+      const allAgents = await db
+        .select({
+          id: agents.id,
+          name: agents.name,
+          status: agents.status,
+          adapterType: agents.adapterType,
+          reportsTo: agents.reportsTo,
+        })
+        .from(agents)
+        .where(eq(agents.companyId, companyId))
+        .orderBy(agents.name);
+
+      const costConditions: ReturnType<typeof eq>[] = [eq(costEvents.companyId, companyId)];
+      if (range?.from) costConditions.push(gte(costEvents.occurredAt, range.from));
+      if (range?.to) costConditions.push(lte(costEvents.occurredAt, range.to));
+
+      const costRows = await db
+        .select({
+          agentId: costEvents.agentId,
+          inputTokens: sumAsNumber(costEvents.inputTokens),
+          cachedInputTokens: sumAsNumber(costEvents.cachedInputTokens),
+          outputTokens: sumAsNumber(costEvents.outputTokens),
+          apiRunCount:
+            sql<number>`count(distinct case when ${costEvents.billingType} = ${METERED_BILLING_TYPE} then ${costEvents.heartbeatRunId} end)::int`,
+          subscriptionRunCount:
+            sql<number>`count(distinct case when ${costEvents.billingType} in (${sql.join(SUBSCRIPTION_BILLING_TYPES.map((value) => sql`${value}`), sql`, `)}) then ${costEvents.heartbeatRunId} end)::int`,
+        })
+        .from(costEvents)
+        .where(and(...costConditions))
+        .groupBy(costEvents.agentId);
+
+      const runConditions = [
+        eq(heartbeatRuns.companyId, companyId),
+        inArray(heartbeatRuns.status, [...TERMINAL_RUN_STATUSES]),
+      ];
+      // postgres.js rejects Date params when the compared side is a SQL expression (coalesce(...)).
+      if (range?.from) {
+        runConditions.push(sql`${runOccurredAt} >= ${range.from.toISOString()}::timestamptz`);
+      }
+      if (range?.to) {
+        runConditions.push(sql`${runOccurredAt} <= ${range.to.toISOString()}::timestamptz`);
+      }
+
+      const runRows = await db
+        .select({
+          agentId: heartbeatRuns.agentId,
+          inputTokens: sql<number>`coalesce(sum(${runInputTokensExpr}), 0)::double precision`,
+          cachedInputTokens: sql<number>`coalesce(sum(${runCachedInputTokensExpr}), 0)::double precision`,
+          outputTokens: sql<number>`coalesce(sum(${runOutputTokensExpr}), 0)::double precision`,
+          runCountInRange: sql<number>`count(*)::int`,
+          runsWithTokensInRange:
+            sql<number>`count(*) filter (where ${runTotalTokensExpr} > 0)::int`,
+          lastRunAt: sql<Date | null>`max(${runOccurredAt})`,
+        })
+        .from(heartbeatRuns)
+        .where(and(...runConditions))
+        .groupBy(heartbeatRuns.agentId);
+
+      const costByAgentId = new Map(costRows.map((row) => [row.agentId, row]));
+      const runsByAgentId = new Map(runRows.map((row) => [row.agentId, row]));
+
+      return allAgents.map((agent) => {
+        const cost = costByAgentId.get(agent.id);
+        const runs = runsByAgentId.get(agent.id);
+        const ledgerInput = Number(cost?.inputTokens ?? 0);
+        const ledgerCached = Number(cost?.cachedInputTokens ?? 0);
+        const ledgerOutput = Number(cost?.outputTokens ?? 0);
+        const ledgerTotal = ledgerInput + ledgerCached + ledgerOutput;
+        const runInput = Number(runs?.inputTokens ?? 0);
+        const runCached = Number(runs?.cachedInputTokens ?? 0);
+        const runOutput = Number(runs?.outputTokens ?? 0);
+        const runTotal = runInput + runCached + runOutput;
+
+        const useLedger = ledgerTotal > 0;
+        const inputTokens = useLedger ? ledgerInput : runInput;
+        const cachedInputTokens = useLedger ? ledgerCached : runCached;
+        const outputTokens = useLedger ? ledgerOutput : runOutput;
+        const totalTokens = inputTokens + cachedInputTokens + outputTokens;
+        const tokenSource: AgentTokenUsage["tokenSource"] =
+          useLedger ? "ledger" : runTotal > 0 ? "runs" : "none";
+
+        return {
+          agentId: agent.id,
+          agentName: agent.name,
+          agentStatus: agent.status,
+          adapterType: agent.adapterType,
+          reportsTo: agent.reportsTo,
+          inputTokens,
+          cachedInputTokens,
+          outputTokens,
+          totalTokens,
+          apiRunCount: Number(cost?.apiRunCount ?? 0),
+          subscriptionRunCount: Number(cost?.subscriptionRunCount ?? 0),
+          runCountInRange: Number(runs?.runCountInRange ?? 0),
+          runsWithTokensInRange: Number(runs?.runsWithTokensInRange ?? 0),
+          lastRunAt: runs?.lastRunAt ?? null,
+          tokenSource,
+        };
+      });
     },
 
     byProvider: async (companyId: string, range?: CostDateRange) => {

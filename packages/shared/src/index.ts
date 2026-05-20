@@ -472,6 +472,7 @@ export type {
   CostSummary,
   IssueCostSummary,
   CostByAgent,
+  AgentTokenUsage,
   CostByProviderModel,
   CostByBiller,
   CostByAgentModel,
